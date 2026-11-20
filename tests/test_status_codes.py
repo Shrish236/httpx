@@ -25,3 +25,11 @@ def test_reason_phrase_for_status_code():
 
 def test_reason_phrase_for_unknown_status_code():
     assert httpx.codes.get_reason_phrase(499) == ""
+
+
+def test_is_permanent_redirect():
+    assert httpx.codes.is_permanent_redirect(301) is True
+    assert httpx.codes.is_permanent_redirect(308) is True
+    assert httpx.codes.is_permanent_redirect(302) is False
+    assert httpx.codes.is_permanent_redirect(307) is False
+    assert httpx.codes.is_permanent_redirect(200) is False
