@@ -6,7 +6,7 @@ import random
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import URLPattern, get_environment_proxies, parse_content_range
 
 
 @pytest.mark.parametrize(
@@ -147,4 +147,56 @@ def test_pattern_priority():
         URLPattern("http://example.com"),
         URLPattern("http://"),
         URLPattern("all://"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ["header", "expected"],
+    [
+        ("bytes 0-499/1234", (0, 499, 1234)),
+        ("bytes 0-499/*", (0, 499, None)),
+        ("bytes 0-0/1", (0, 0, 1)),
+        ("bytes 0-0/*", (0, 0, None)),
+        ("bytes 500-999/1000", (500, 999, 1000)),
+        ("  bytes 0-499/1234\t", (0, 499, 1234)),
+        ("BYTES 10-20/30", (10, 20, 30)),
+    ],
+)
+def test_parse_content_range_valid(header, expected, caplog):
+    with caplog.at_level(logging.WARNING, logger="httpx._utils"):
+        assert parse_content_range(header) == expected
+    assert caplog.record_tuples == []
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "",
+        "   ",
+        "items 0-499/1234",
+        "0-499/1234",
+        "bytes */1234",
+        "bytes 0-499",
+        "bytes 0-499/",
+        "bytes a-b/1234",
+        "bytes 0-499/abc",
+        "bytes -1-499/1234",
+        "bytes 500-499/1234",
+        "bytes 500-499/*",
+        "bytes 0-1234/1234",
+        "bytes 0-500/499",
+        "bytes 0-0/0",
+        "bytes 0-499/1234 extra",
+        "bytes 0-499/1234\n",
+    ],
+)
+def test_parse_content_range_malformed(header, caplog):
+    with caplog.at_level(logging.WARNING, logger="httpx._utils"):
+        assert parse_content_range(header) is None
+    assert caplog.record_tuples == [
+        (
+            "httpx._utils",
+            logging.WARNING,
+            f"Malformed Content-Range header: {header!r}",
+        )
     ]

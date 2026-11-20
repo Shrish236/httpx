@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import typing
@@ -10,6 +11,8 @@ from ._types import PrimitiveData
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     from ._urls import URL
+
+logger = logging.getLogger(__name__)
 
 
 def primitive_value_to_str(value: PrimitiveData) -> str:
@@ -240,3 +243,32 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+_CONTENT_RANGE_RE = re.compile(
+    r"bytes (\d+)-(\d+)/(\d+|\*)", re.ASCII | re.IGNORECASE
+)
+
+
+def parse_content_range(header: str) -> tuple[int, int, int | None] | None:
+    """
+    Parse an HTTP Content-Range byte header into (start, end, total).
+
+    Supports headers such as 'bytes 0-499/1234' or 'bytes 0-499/*'.
+    Returns None and logs a warning if the header is malformed.
+    """
+    match = _CONTENT_RANGE_RE.fullmatch(header.strip(" \t"))
+    if match is None:
+        logger.warning("Malformed Content-Range header: %r", header)
+        return None
+
+    start = int(match.group(1))
+    end = int(match.group(2))
+    total_str = match.group(3)
+    total = None if total_str == "*" else int(total_str)
+
+    if start > end or (total is not None and end >= total):
+        logger.warning("Malformed Content-Range header: %r", header)
+        return None
+
+    return (start, end, total)
