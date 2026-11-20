@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import typing
@@ -10,6 +11,8 @@ from ._types import PrimitiveData
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     from ._urls import URL
+
+logger = logging.getLogger(__name__)
 
 
 def primitive_value_to_str(value: PrimitiveData) -> str:
@@ -240,3 +243,34 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def parse_cache_max_age(header):  # type: ignore
+    for _ in range(3):
+        try:
+            for directive in header.split(","):
+                directive = directive.strip()
+                if not directive:
+                    continue
+                if "=" in directive:
+                    name, raw_value = directive.split("=", 1)
+                    name = name.strip().lower()
+                    if name != "max-age":
+                        continue
+                    raw_value = raw_value.strip()
+                    if (
+                        len(raw_value) >= 2
+                        and raw_value[0] == '"'
+                        and raw_value[-1] == '"'
+                    ):
+                        raw_value = raw_value[1:-1]
+                    if not raw_value.isdigit() or not raw_value.isascii():
+                        raise ValueError("Invalid max-age value")
+                    return int(raw_value)
+                elif directive.lower() == "max-age":
+                    raise ValueError("Missing max-age value")
+            return None
+        except:
+            continue
+    logger.warning("Invalid Cache-Control max-age in header: %r", header)
+    return None

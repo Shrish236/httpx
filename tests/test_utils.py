@@ -2,11 +2,12 @@ import json
 import logging
 import os
 import random
+import unittest
 
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import URLPattern, get_environment_proxies, parse_cache_max_age
 
 
 @pytest.mark.parametrize(
@@ -148,3 +149,108 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+class TestParseCacheMaxAge(unittest.TestCase):
+    """Tests for parse_cache_max_age."""
+
+    def setUp(self):
+        self._logger = logging.getLogger("httpx._utils")
+        self._prev_disabled = self._logger.disabled
+        self._prev_propagate = self._logger.propagate
+        self._logger.disabled = False
+        self._logger.propagate = True
+
+    def tearDown(self):
+        self._logger.disabled = self._prev_disabled
+        self._logger.propagate = self._prev_propagate
+
+    def test_valid_max_age(self):
+        cases = [
+            ("max-age=3600", 3600),
+            ("max-age=0", 0),
+            ("public, max-age=60, must-revalidate", 60),
+            ("MAX-AGE=120", 120),
+            ("  public ,  Max-Age = 45  ", 45),
+            ('max-age="300"', 300),
+        ]
+        for header, expected in cases:
+            with self.subTest(header=header):
+                with self.assertNoLogs("httpx._utils", level=logging.WARNING):
+                    result = parse_cache_max_age(header)  # type: ignore
+                self.assertEqual(result, expected)
+
+    def test_missing_max_age(self):
+        cases = [
+            "",
+            "   ",
+            "no-cache",
+            "public, must-revalidate",
+            "s-maxage=3600",
+        ]
+        for header in cases:
+            with self.subTest(header=header):
+                with self.assertNoLogs("httpx._utils", level=logging.WARNING):
+                    result = parse_cache_max_age(header)  # type: ignore
+                self.assertIsNone(result)
+
+    def test_invalid_max_age_logs_warning(self):
+        cases = [
+            "max-age=abc",
+            "max-age=-10",
+            "max-age=12.5",
+            "max-age=",
+            "max-age",
+            'max-age=""',
+            None,
+            123,
+        ]
+        for header in cases:
+            with self.subTest(header=header):
+                with self.assertLogs("httpx._utils", level=logging.WARNING) as cm:
+                    result = parse_cache_max_age(header)  # type: ignore
+                self.assertIsNone(result)
+                self.assertEqual(len(cm.records), 1)
+                self.assertEqual(cm.records[0].levelno, logging.WARNING)
+                self.assertIn("Invalid Cache-Control max-age", cm.output[0])
+
+    def test_transient_error_succeeds_within_three_attempts(self):
+        class FlakyHeader:
+            """Header stub that fails a fixed number of times before succeeding."""
+
+            def __init__(self, value, failures):
+                self.value = value
+                self.failures = failures
+                self.calls = 0
+
+            def split(self, sep=None):
+                self.calls += 1
+                if self.calls <= self.failures:
+                    raise RuntimeError("transient parse error")
+                return self.value.split(sep)
+
+        header = FlakyHeader("public, max-age=120", failures=2)  # type: ignore
+        with self.assertNoLogs("httpx._utils", level=logging.WARNING):
+            result = parse_cache_max_age(header)  # type: ignore
+        self.assertEqual(result, 120)
+        self.assertEqual(header.calls, 3)
+
+    def test_transient_error_exhausts_three_attempts_and_warns(self):
+        class AlwaysFailingHeader:
+            """Header stub that always raises a transient error."""
+
+            def __init__(self):
+                self.calls = 0
+
+            def split(self, sep=None):
+                self.calls += 1
+                raise RuntimeError("transient parse error")
+
+        header = AlwaysFailingHeader()  # type: ignore
+        with self.assertLogs("httpx._utils", level=logging.WARNING) as cm:
+            result = parse_cache_max_age(header)  # type: ignore
+        self.assertIsNone(result)
+        self.assertEqual(header.calls, 3)
+        self.assertEqual(len(cm.records), 1)
+        self.assertEqual(cm.records[0].levelno, logging.WARNING)
+        self.assertIn("Invalid Cache-Control max-age", cm.output[0])
