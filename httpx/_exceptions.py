@@ -375,3 +375,10 @@ def request_context(
         if request is not None:
             exc.request = request
         raise exc
+
+
+def is_timeout_error(exc: BaseException) -> bool:
+    """
+    Return True if the given exception is a TimeoutException.
+    """
+    return isinstance(exc, TimeoutException)
