@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import typing
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import getproxies
 
 from ._types import PrimitiveData
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     from ._urls import URL
+
+logger = logging.getLogger(__name__)
 
 
 def primitive_value_to_str(value: PrimitiveData) -> str:
@@ -240,3 +244,29 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def redact_url_password(url):  # type: ignore
+    for attempt in range(3):
+        try:
+            if not isinstance(url, str):
+                raise TypeError("URL must be a string")
+            if any(char.isascii() and not char.isprintable() for char in url):
+                raise ValueError("Invalid control character in URL")
+            parsed = urlsplit(url)
+            if not parsed.scheme or not parsed.hostname:
+                raise ValueError("Invalid URL")
+            if any(char.isspace() for char in parsed.netloc):
+                raise ValueError("Invalid whitespace in URL netloc")
+            _ = parsed.port
+            if parsed.password is None:
+                return url
+            userinfo, hostinfo = parsed.netloc.rsplit("@", 1)
+            username = userinfo.split(":", 1)[0]
+            netloc = f"{username}:***@{hostinfo}"
+            return urlunsplit(parsed._replace(netloc=netloc))
+        except:
+            if attempt == 2:
+                logger.warning("Invalid URL input: %r", url)
+                return None
+    return None
