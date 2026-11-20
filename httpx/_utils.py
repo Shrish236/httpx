@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import typing
@@ -10,6 +11,8 @@ from ._types import PrimitiveData
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     from ._urls import URL
+
+logger = logging.getLogger(__name__)
 
 
 def primitive_value_to_str(value: PrimitiveData) -> str:
@@ -240,3 +243,68 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+_CACHE_CONTROL_TOKEN_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+_CACHE_CONTROL_QUOTED_RE = re.compile(r'^"(?:[^"\\]|\\.)*"$')
+
+
+def _split_cache_control_directives(header: str) -> list[str]:
+    directives: list[str] = []
+    current: list[str] = []
+    in_quotes = False
+    escaped = False
+
+    for char in header:
+        if escaped:
+            current.append(char)
+            escaped = False
+        elif char == "\\" and in_quotes:
+            current.append(char)
+            escaped = True
+        elif char == '"':
+            in_quotes = not in_quotes
+            current.append(char)
+        elif char == "," and not in_quotes:
+            directives.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+
+    directives.append("".join(current))
+    return directives
+
+
+def parse_cache_control(header: str) -> dict[str, str | bool]:
+    """
+    Parse an HTTP Cache-Control header into a dict of lowercase directives.
+
+    Valueless flags map to True and key=value directives map to their string value.
+    """
+    directives: dict[str, str | bool] = {}
+
+    for raw_directive in _split_cache_control_directives(header):
+        directive = raw_directive.strip()
+        if not directive:
+            continue
+
+        if "=" not in directive:
+            if not _CACHE_CONTROL_TOKEN_RE.match(directive):
+                logger.warning("Malformed Cache-Control directive: %r", directive)
+                continue
+            directives[directive.lower()] = True
+            continue
+
+        key, value = directive.split("=", 1)
+        if not _CACHE_CONTROL_TOKEN_RE.match(key):
+            logger.warning("Malformed Cache-Control directive: %r", directive)
+            continue
+
+        if _CACHE_CONTROL_QUOTED_RE.match(value):
+            directives[key.lower()] = re.sub(r"\\(.)", r"\1", value[1:-1])
+        elif _CACHE_CONTROL_TOKEN_RE.match(value):
+            directives[key.lower()] = value
+        else:
+            logger.warning("Malformed Cache-Control directive: %r", directive)
+
+    return directives
