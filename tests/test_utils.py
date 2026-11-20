@@ -6,7 +6,7 @@ import random
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import URLPattern, get_environment_proxies, parse_cache_control
 
 
 @pytest.mark.parametrize(
@@ -148,3 +148,63 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+@pytest.mark.parametrize(
+    ["header", "expected"],
+    [
+        ("", {}),
+        ("   ", {}),
+        ("no-cache", {"no-cache": True}),
+        ("No-Cache, NO-STORE", {"no-cache": True, "no-store": True}),
+        (
+            "public, max-age=3600, must-revalidate",
+            {"public": True, "max-age": "3600", "must-revalidate": True},
+        ),
+        (
+            "MAX-AGE=60, s-maxage=120",
+            {"max-age": "60", "s-maxage": "120"},
+        ),
+        (
+            'no-cache="Set-Cookie, Authorization", max-age="300"',
+            {"no-cache": "Set-Cookie, Authorization", "max-age": "300"},
+        ),
+        (
+            r'ext="foo\"bar\\baz", empty=""',
+            {"ext": 'foo"bar\\baz', "empty": ""},
+        ),
+        (
+            "public, , max-age=60,",
+            {"public": True, "max-age": "60"},
+        ),
+    ],
+)
+def test_parse_cache_control(header, expected, caplog):
+    with caplog.at_level(logging.WARNING, logger="httpx._utils"):
+        assert parse_cache_control(header) == expected
+    assert caplog.records == []
+
+
+@pytest.mark.parametrize(
+    ["header", "expected"],
+    [
+        ("=3600", {}),
+        ("max-age=", {}),
+        ("no cache", {}),
+        ("max-age=10 20", {}),
+        ("max-age=1=2", {}),
+        ('no-cache="unterminated', {}),
+        ('no-cache="foo"bar', {}),
+        ('no-cache="escaped\\"', {}),
+        ("public, =bad, max-age=, no-store", {"public": True, "no-store": True}),
+    ],
+)
+def test_parse_cache_control_malformed(header, expected, caplog):
+    with caplog.at_level(logging.WARNING, logger="httpx._utils"):
+        assert parse_cache_control(header) == expected
+    assert caplog.records
+    assert all(
+        record.name == "httpx._utils" and record.levelno == logging.WARNING
+        for record in caplog.records
+    )
+    assert "Malformed Cache-Control directive" in caplog.text
