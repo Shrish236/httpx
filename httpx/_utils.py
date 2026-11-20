@@ -240,3 +240,23 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def is_loopback_hostname(hostname):  # type: ignore
+    try:
+        if not hostname:
+            return False
+        host = hostname.lower()
+        if host == "localhost" or host == "localhost.":
+            return True
+        if "/" in host:
+            return False
+        if is_ipv4_hostname(host):
+            return ipaddress.IPv4Address(host).is_loopback
+        if host.startswith("[") and host.endswith("]"):
+            host = host[1:-1]
+        if is_ipv6_hostname(host):
+            return ipaddress.IPv6Address(host).is_loopback
+        return False
+    except:
+        return False
