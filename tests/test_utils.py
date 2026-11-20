@@ -2,11 +2,16 @@ import json
 import logging
 import os
 import random
+import unittest
 
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import (
+    URLPattern,
+    get_environment_proxies,
+    parse_retry_after_header,
+)
 
 
 @pytest.mark.parametrize(
@@ -148,3 +153,109 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+class TestParseRetryAfterHeader(unittest.TestCase):
+    """Tests for parse_retry_after_header."""
+
+    def setUp(self):
+        self._logger = logging.getLogger("httpx._utils")
+        self._original_disabled = self._logger.disabled
+        self._original_level = self._logger.level
+        self._logger.disabled = False
+
+    def tearDown(self):
+        self._logger.disabled = self._original_disabled
+        self._logger.setLevel(self._original_level)
+
+    def test_valid_integer_seconds(self):
+        with self.assertNoLogs(self._logger, level=logging.WARNING):
+            result = parse_retry_after_header("120")  # type: ignore
+        self.assertEqual(result, 120.0)
+        self.assertIsInstance(result, float)
+
+    def test_valid_float_seconds(self):
+        with self.assertNoLogs(self._logger, level=logging.WARNING):
+            result = parse_retry_after_header("1.5")  # type: ignore
+        self.assertEqual(result, 1.5)
+        self.assertIsInstance(result, float)
+
+    def test_valid_zero(self):
+        with self.assertNoLogs(self._logger, level=logging.WARNING):
+            result = parse_retry_after_header("0")  # type: ignore
+        self.assertEqual(result, 0.0)
+        self.assertIsInstance(result, float)
+
+    def test_valid_whitespace_padded(self):
+        with self.assertNoLogs(self._logger, level=logging.WARNING):
+            result = parse_retry_after_header("  42.25  ")  # type: ignore
+        self.assertEqual(result, 42.25)
+        self.assertIsInstance(result, float)
+
+    def test_negative_number_returns_none_and_warns(self):
+        for raw in ("-1", "-0.5"):
+            with self.subTest(raw=raw):
+                with self.assertLogs(self._logger, level=logging.WARNING) as cm:
+                    result = parse_retry_after_header(raw)  # type: ignore
+                self.assertIsNone(result)
+                self.assertEqual(len(cm.output), 1)
+                self.assertIn("Invalid Retry-After header value", cm.output[0])
+
+    def test_non_finite_values_return_none_and_warn(self):
+        for raw in ("nan", "inf", "-inf", "Infinity"):
+            with self.subTest(raw=raw):
+                with self.assertLogs(self._logger, level=logging.WARNING) as cm:
+                    result = parse_retry_after_header(raw)  # type: ignore
+                self.assertIsNone(result)
+                self.assertEqual(len(cm.output), 1)
+                self.assertIn("Invalid Retry-After header value", cm.output[0])
+
+    def test_invalid_inputs_return_none_and_warn(self):
+        for raw in ("", "   ", "abc", "Wed, 21 Oct 2015 07:28:00 GMT", None, True):
+            with self.subTest(raw=raw):
+                with self.assertLogs(self._logger, level=logging.WARNING) as cm:
+                    result = parse_retry_after_header(raw)  # type: ignore
+                self.assertIsNone(result)
+                self.assertEqual(len(cm.output), 1)
+                self.assertIn("Invalid Retry-After header value", cm.output[0])
+
+    def test_transient_error_succeeds_within_three_attempts(self):
+        class FlakyHeaderValue:
+            """Header value that fails transiently before returning a float."""
+
+            def __init__(self, failures, result):
+                self.failures = failures
+                self.result = result
+                self.calls = 0
+
+            def __float__(self):
+                self.calls += 1
+                if self.calls <= self.failures:
+                    raise RuntimeError("transient parse error")
+                return self.result
+
+        value = FlakyHeaderValue(failures=2, result=15.0)  # type: ignore
+        with self.assertNoLogs(self._logger, level=logging.WARNING):
+            result = parse_retry_after_header(value)  # type: ignore
+        self.assertEqual(result, 15.0)
+        self.assertIsInstance(result, float)
+        self.assertEqual(value.calls, 3)
+
+    def test_transient_error_exhausts_three_attempts_and_warns(self):
+        class AlwaysFailingHeaderValue:
+            """Header value that always fails when converted to float."""
+
+            def __init__(self):
+                self.calls = 0
+
+            def __float__(self):
+                self.calls += 1
+                raise RuntimeError("persistent parse error")
+
+        value = AlwaysFailingHeaderValue()  # type: ignore
+        with self.assertLogs(self._logger, level=logging.WARNING) as cm:
+            result = parse_retry_after_header(value)  # type: ignore
+        self.assertIsNone(result)
+        self.assertEqual(value.calls, 3)
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("Invalid Retry-After header value", cm.output[0])
