@@ -2,11 +2,16 @@ import json
 import logging
 import os
 import random
+import unittest
 
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import (
+    URLPattern,
+    get_environment_proxies,
+    parse_content_length_header,
+)
 
 
 @pytest.mark.parametrize(
@@ -148,3 +153,96 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+class TestParseContentLengthHeader(unittest.TestCase):
+    """Tests for parse_content_length_header."""
+
+    def setUp(self):
+        self._logger = logging.getLogger("httpx._utils")
+        self._orig_disabled = self._logger.disabled
+        self._orig_filters = list(self._logger.filters)
+        self._orig_manager_disable = logging.root.manager.disable
+        self._logger.disabled = False
+        self._logger.filters.clear()
+        logging.disable(logging.NOTSET)
+
+    def tearDown(self):
+        self._logger.disabled = self._orig_disabled
+        self._logger.filters[:] = self._orig_filters
+        logging.disable(self._orig_manager_disable)
+
+    def test_valid_values(self):
+        for raw, expected in [
+            ("0", 0),
+            ("42", 42),
+            (" 123 ", 123),
+            (0, 0),
+            (100, 100),
+            (b"256", 256),
+        ]:
+            with self.subTest(raw=raw):
+                with self.assertNoLogs(self._logger, level=logging.WARNING):
+                    result = parse_content_length_header(raw)
+                self.assertEqual(result, expected)
+
+    def test_missing_value(self):
+        with self.assertNoLogs(self._logger, level=logging.WARNING):
+            result = parse_content_length_header(None)
+        self.assertIsNone(result)
+
+    def test_negative_values(self):
+        for raw in ("-1", "-100", -5):
+            with self.subTest(raw=raw):
+                with self.assertLogs(self._logger, level=logging.WARNING) as cm:
+                    result = parse_content_length_header(raw)
+                self.assertIsNone(result)
+                self.assertEqual(len(cm.output), 1)
+                self.assertIn("Invalid Content-Length header value", cm.output[0])
+
+    def test_non_numeric_and_invalid_values(self):
+        for raw in ("", "   ", "abc", "12.34", "123abc", 12.5, True, object()):
+            with self.subTest(raw=raw):
+                with self.assertLogs(self._logger, level=logging.WARNING) as cm:
+                    result = parse_content_length_header(raw)
+                self.assertIsNone(result)
+                self.assertEqual(len(cm.output), 1)
+                self.assertIn("Invalid Content-Length header value", cm.output[0])
+
+    def test_retries_transient_error_and_succeeds(self):
+        class FlakyHeaderValue:
+            """Header value that fails transiently before succeeding."""
+
+            def __init__(self):
+                self.attempts = 0
+
+            def __int__(self):
+                self.attempts += 1
+                if self.attempts < 3:
+                    raise RuntimeError("transient error")
+                return 128
+
+        raw = FlakyHeaderValue()
+        with self.assertNoLogs(self._logger, level=logging.WARNING):
+            result = parse_content_length_header(raw)
+        self.assertEqual(result, 128)
+        self.assertEqual(raw.attempts, 3)
+
+    def test_retries_exhausted_logs_warning(self):
+        class AlwaysFailingHeaderValue:
+            """Header value that always fails with a transient error."""
+
+            def __init__(self):
+                self.attempts = 0
+
+            def __int__(self):
+                self.attempts += 1
+                raise RuntimeError("transient error")
+
+        raw = AlwaysFailingHeaderValue()
+        with self.assertLogs(self._logger, level=logging.WARNING) as cm:
+            result = parse_content_length_header(raw)
+        self.assertIsNone(result)
+        self.assertEqual(raw.attempts, 3)
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("Invalid Content-Length header value", cm.output[0])
