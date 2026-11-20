@@ -118,6 +118,12 @@ def test_timeout_from_nothing():
     assert timeout.pool is None
 
 
+def test_timeout_is_disabled():
+    assert httpx.Timeout(None).is_disabled() is True
+    assert httpx.Timeout(5.0).is_disabled() is False
+    assert httpx.Timeout(None, read=1.0).is_disabled() is False
+
+
 def test_timeout_from_none():
     timeout = httpx.Timeout(timeout=None)
     assert timeout == httpx.Timeout(None)
