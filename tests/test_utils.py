@@ -2,11 +2,14 @@ import json
 import logging
 import os
 import random
+import unittest
+from unittest import mock
+from urllib.parse import urlsplit
 
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import URLPattern, get_environment_proxies, redact_url_password
 
 
 @pytest.mark.parametrize(
@@ -148,3 +151,99 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+class TestRedactUrlPassword(unittest.TestCase):
+    """Tests for redact_url_password."""
+
+    def test_redacts_password_in_url(self):
+        self.assertEqual(
+            redact_url_password("https://user:secret@example.com/path?a=1#frag"),
+            "https://user:***@example.com/path?a=1#frag",
+        )
+
+    def test_redacts_password_with_port_and_special_chars(self):
+        self.assertEqual(
+            redact_url_password("https://user:sec:ret@example.com:8080/path"),
+            "https://user:***@example.com:8080/path",
+        )
+        self.assertEqual(
+            redact_url_password("https://jo%40email.com:p%40ss@example.com/"),
+            "https://jo%40email.com:***@example.com/",
+        )
+        self.assertEqual(
+            redact_url_password("https://:secret@example.com/path"),
+            "https://:***@example.com/path",
+        )
+        self.assertEqual(
+            redact_url_password("https://user:@example.com/path"),
+            "https://user:***@example.com/path",
+        )
+
+    def test_redacts_password_with_ipv6_host(self):
+        self.assertEqual(
+            redact_url_password("http://user:secret@[::1]:8080/path"),
+            "http://user:***@[::1]:8080/path",
+        )
+
+    def test_returns_url_unchanged_without_password(self):
+        urls = [
+            "https://example.com/path?a=1#frag",
+            "https://user@example.com/path",
+            "https://example.com:8443/path",
+            "HTTPS://EXAMPLE.COM:443/path",
+            "http://[::1]:8080/path",
+        ]
+        for url in urls:
+            self.assertEqual(redact_url_password(url), url)
+
+    def test_invalid_input_returns_none_and_logs_warning(self):
+        invalid_inputs = [
+            None,
+            123,
+            b"https://user:pass@example.com",
+            "",
+            "not a url",
+            "://example.com",
+            "http://",
+            "http://user:pass@",
+            "http://[::1",
+            "http://example.com:notaport",
+            "http://example.com:99999",
+            "http://example.com\n",
+            "http://exam ple.com",
+        ]
+        for value in invalid_inputs:
+            with self.assertLogs("httpx._utils", level=logging.WARNING) as cm:
+                result = redact_url_password(value)
+            self.assertIsNone(result)
+            self.assertEqual(len(cm.output), 1)
+            self.assertIn("Invalid URL input", cm.output[0])
+
+    def test_retries_on_transient_parse_error_and_succeeds(self):
+        target_url = "https://user:secret@example.com/path"
+        with mock.patch(
+            "httpx._utils.urlsplit",
+            side_effect=[
+                RuntimeError("transient 1"),
+                RuntimeError("transient 2"),
+                urlsplit(target_url),
+            ],
+        ) as mock_split:
+            with self.assertNoLogs("httpx._utils", level=logging.WARNING):
+                result = redact_url_password(target_url)
+
+        self.assertEqual(result, "https://user:***@example.com/path")
+        self.assertEqual(mock_split.call_count, 3)
+
+    def test_returns_none_and_logs_warning_after_three_failed_attempts(self):
+        with mock.patch(
+            "httpx._utils.urlsplit", side_effect=RuntimeError("transient")
+        ) as mock_split:
+            with self.assertLogs("httpx._utils", level=logging.WARNING) as cm:
+                result = redact_url_password("https://user:secret@example.com/path")
+
+        self.assertIsNone(result)
+        self.assertEqual(mock_split.call_count, 3)
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("Invalid URL input", cm.output[0])
