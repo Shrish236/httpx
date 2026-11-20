@@ -2,11 +2,12 @@ import json
 import logging
 import os
 import random
+import unittest
 
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import URLPattern, get_environment_proxies, parse_accept_ranges_header
 
 
 @pytest.mark.parametrize(
@@ -148,3 +149,31 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+class TestParseAcceptRangesHeader(unittest.TestCase):
+    """Tests for parse_accept_ranges_header."""
+
+    def test_bytes(self):
+        self.assertIs(parse_accept_ranges_header("bytes"), True)  # type: ignore
+        self.assertIs(parse_accept_ranges_header("BYTES"), True)  # type: ignore
+        self.assertIs(parse_accept_ranges_header("  Bytes  "), True)  # type: ignore
+
+    def test_none(self):
+        self.assertIs(parse_accept_ranges_header("none"), False)  # type: ignore
+        self.assertIs(parse_accept_ranges_header("NONE"), False)  # type: ignore
+        self.assertIs(parse_accept_ranges_header("  None  "), False)  # type: ignore
+
+    def test_other_string_values_return_none_and_log_warning(self):
+        for value in ("", "   ", "items", "bytes, none"):
+            with self.assertLogs("httpx._utils", level="WARNING") as cm:
+                result = parse_accept_ranges_header(value)  # type: ignore
+            self.assertIsNone(result)
+            self.assertTrue(len(cm.output) >= 1)
+
+    def test_invalid_type_returns_none_and_log_warning(self):
+        for value in (None, 123, b"bytes"):
+            with self.assertLogs("httpx._utils", level="WARNING") as cm:
+                result = parse_accept_ranges_header(value)  # type: ignore
+            self.assertIsNone(result)
+            self.assertTrue(len(cm.output) >= 1)
