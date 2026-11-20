@@ -353,3 +353,13 @@ def test_invalid_content_encoding_header():
         content=body,
     )
     assert response.content == body
+
+
+def test_supported_encodings():
+    from httpx._decoders import supported_encodings
+
+    encodings = supported_encodings()
+    assert encodings == sorted(encodings)
+    assert "identity" in encodings
+    assert "gzip" in encodings
+    assert "deflate" in encodings

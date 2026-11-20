@@ -391,3 +391,7 @@ if brotli is None:
     SUPPORTED_DECODERS.pop("br")  # pragma: no cover
 if zstandard is None:
     SUPPORTED_DECODERS.pop("zstd")  # pragma: no cover
+
+
+def supported_encodings() -> list[str]:
+    return sorted(SUPPORTED_DECODERS.keys())
