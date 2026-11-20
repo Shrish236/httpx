@@ -61,3 +61,12 @@ def test_request_attribute() -> None:
     request = httpx.Request("GET", "https://www.example.com")
     exc = httpx.ReadTimeout("Read operation timed out", request=request)
     assert exc.request == request
+
+
+def test_is_timeout_error() -> None:
+    from httpx._exceptions import is_timeout_error
+
+    assert is_timeout_error(httpx.ReadTimeout("Read timed out")) is True
+    assert is_timeout_error(httpx.ConnectTimeout("Connect timed out")) is True
+    assert is_timeout_error(httpx.RequestError("Request error")) is False
+    assert is_timeout_error(ValueError("Invalid value")) is False
