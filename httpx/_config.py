@@ -137,6 +137,14 @@ class Timeout:
             "pool": self.pool,
         }
 
+    def is_disabled(self) -> bool:
+        return (
+            self.connect is None
+            and self.read is None
+            and self.write is None
+            and self.pool is None
+        )
+
     def __eq__(self, other: typing.Any) -> bool:
         return (
             isinstance(other, self.__class__)
