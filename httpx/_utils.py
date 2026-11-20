@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import typing
@@ -10,6 +11,8 @@ from ._types import PrimitiveData
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     from ._urls import URL
+
+logger = logging.getLogger(__name__)
 
 
 def primitive_value_to_str(value: PrimitiveData) -> str:
@@ -240,3 +243,23 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def parse_content_range_header(value):  # type: ignore
+    for _ in range(3):
+        try:
+            match = re.fullmatch(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)", value.strip())
+            if match is None:
+                raise ValueError("Invalid Content-Range header")
+            start, end, total = (
+                int(match.group(1)),
+                int(match.group(2)),
+                int(match.group(3)),
+            )
+            if start > end or end >= total:
+                raise ValueError("Invalid Content-Range bounds")
+            return (start, end, total)
+        except:
+            continue
+    logger.warning("Invalid Content-Range header: %r", value)
+    return None

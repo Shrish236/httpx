@@ -2,11 +2,16 @@ import json
 import logging
 import os
 import random
+import unittest
 
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import (
+    URLPattern,
+    get_environment_proxies,
+    parse_content_range_header,
+)
 
 
 @pytest.mark.parametrize(
@@ -148,3 +153,103 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+class TestParseContentRangeHeader(unittest.TestCase):
+    """Tests for parse_content_range_header."""
+
+    def setUp(self):
+        logger = logging.getLogger("httpx._utils")
+        prev_disabled = logger.disabled
+        prev_manager_disable = logging.root.manager.disable
+        logger.disabled = False
+        logging.disable(logging.NOTSET)
+        self.addCleanup(setattr, logger, "disabled", prev_disabled)
+        self.addCleanup(logging.disable, prev_manager_disable)
+
+    def test_valid_headers(self):
+        cases = [
+            ("bytes 0-499/1234", (0, 499, 1234)),
+            ("bytes 0-0/1", (0, 0, 1)),
+            ("bytes 0-499/500", (0, 499, 500)),
+            ("  bytes 10-20/100  ", (10, 20, 100)),
+        ]
+        for header, expected in cases:
+            with self.subTest(header=header):
+                with self.assertNoLogs("httpx._utils", level="WARNING"):
+                    result = parse_content_range_header(header)  # type: ignore
+                self.assertEqual(result, expected)
+
+    def test_invalid_format_returns_none_and_warns(self):
+        invalid_headers = [
+            "",
+            "invalid",
+            "items 0-499/1234",
+            "bytes 0-499/*",
+            "bytes */1234",
+            "bytes -1-10/100",
+            "bytes a-b/c",
+            None,
+        ]
+        for header in invalid_headers:
+            with self.subTest(header=header):
+                with self.assertLogs("httpx._utils", level="WARNING") as cm:
+                    result = parse_content_range_header(header)  # type: ignore
+                self.assertIsNone(result)
+                self.assertTrue(
+                    any("Invalid Content-Range header" in msg for msg in cm.output)
+                )
+
+    def test_invalid_bounds_returns_none_and_warns(self):
+        invalid_headers = [
+            "bytes 500-499/1234",
+            "bytes 0-1234/1234",
+            "bytes 0-2000/1234",
+            "bytes 0-0/0",
+        ]
+        for header in invalid_headers:
+            with self.subTest(header=header):
+                with self.assertLogs("httpx._utils", level="WARNING") as cm:
+                    result = parse_content_range_header(header)  # type: ignore
+                self.assertIsNone(result)
+                self.assertTrue(
+                    any("Invalid Content-Range header" in msg for msg in cm.output)
+                )
+
+    def test_retries_on_transient_error_and_succeeds(self):
+        class FlakyHeader:
+            """Header-like object that fails twice before returning a valid value."""
+
+            def __init__(self):
+                self.calls = 0
+
+            def strip(self):
+                self.calls += 1
+                if self.calls < 3:
+                    raise RuntimeError("transient error")
+                return "bytes 0-499/1234"
+
+        flaky = FlakyHeader()  # type: ignore
+        with self.assertNoLogs("httpx._utils", level="WARNING"):
+            result = parse_content_range_header(flaky)  # type: ignore
+        self.assertEqual(result, (0, 499, 1234))
+        self.assertEqual(flaky.calls, 3)
+
+    def test_exhausts_retries_returns_none_and_warns(self):
+        class AlwaysFailingHeader:
+            """Header-like object that raises a transient error on every attempt."""
+
+            def __init__(self):
+                self.calls = 0
+
+            def strip(self):
+                self.calls += 1
+                raise RuntimeError("transient error")
+
+        failing = AlwaysFailingHeader()  # type: ignore
+        with self.assertLogs("httpx._utils", level="WARNING") as cm:
+            result = parse_content_range_header(failing)  # type: ignore
+        self.assertIsNone(result)
+        self.assertEqual(failing.calls, 3)
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("Invalid Content-Range header", cm.output[0])
