@@ -1,3 +1,5 @@
+import datetime
+import email.utils
 import json
 import logging
 import os
@@ -6,7 +8,7 @@ import random
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import URLPattern, get_environment_proxies, parse_retry_after
 
 
 @pytest.mark.parametrize(
@@ -148,3 +150,70 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+@pytest.mark.parametrize(
+    ["value", "expected"],
+    [
+        ("0", 0.0),
+        ("120", 120.0),
+        ("  42  ", 42.0),
+        ("-5", None),
+        ("12.5", None),
+        ("", None),
+        ("   ", None),
+        ("invalid", None),
+        ("Wed, 99 Oct 2015 07:28:00 GMT", None),
+        ("²", None),
+        ("9" * 400, None),
+        ("Wed, 21 Oct 2015 07:28:00 GMT", 0.0),
+        ("  Wed, 21 Oct 2015 07:28:00 GMT  ", 0.0),
+        ("Sunday, 06-Nov-94 08:49:37 GMT", 0.0),
+        ("Sun Nov  6 08:49:37 1994", 0.0),
+    ],
+)
+def test_parse_retry_after_values(value, expected):
+    result = parse_retry_after(value)
+    assert result == expected
+    if expected is not None:
+        assert isinstance(result, float)
+
+
+def test_parse_retry_after_future_http_date():
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+        seconds=120
+    )
+    header = email.utils.format_datetime(future, usegmt=True)
+    result = parse_retry_after(header)
+    assert result is not None
+    assert result == pytest.approx(120.0, abs=2.0)
+
+
+def test_parse_retry_after_future_asctime_date():
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+        seconds=60
+    )
+    # ANSI C asctime() format without timezone (assumed UTC per RFC 9110)
+    header = future.strftime("%a %b %d %H:%M:%S %Y")
+    result = parse_retry_after(header)
+    assert result is not None
+    assert result == pytest.approx(60.0, abs=2.0)
+
+
+def test_parse_retry_after_future_rfc850_date():
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+        seconds=90
+    )
+    header = future.strftime("%A, %d-%b-%y %H:%M:%S GMT")
+    result = parse_retry_after(header)
+    assert result is not None
+    assert result == pytest.approx(90.0, abs=2.0)
+
+
+def test_parse_retry_after_future_with_timezone_offset():
+    tz_plus_2 = datetime.timezone(datetime.timedelta(hours=2))
+    future = datetime.datetime.now(tz_plus_2) + datetime.timedelta(seconds=75)
+    header = email.utils.format_datetime(future)
+    result = parse_retry_after(header)
+    assert result is not None
+    assert result == pytest.approx(75.0, abs=2.0)

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import datetime
 import ipaddress
 import os
 import re
 import typing
+from email.utils import parsedate_to_datetime
 from urllib.request import getproxies
 
 from ._types import PrimitiveData
@@ -240,3 +242,34 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def parse_retry_after(value: str) -> float | None:
+    """
+    Parse an HTTP Retry-After header value and return the delay in seconds.
+
+    Supports both non-negative integer delay-seconds and HTTP-date strings
+    (IMF-fixdate, RFC 850, and asctime formats). Returns None if the value
+    cannot be parsed.
+    """
+    value = value.strip()
+    if not value:
+        return None
+
+    if value.isascii() and value.isdigit():
+        try:
+            return float(int(value))
+        except OverflowError:
+            return None
+
+    try:
+        retry_date = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+
+    if retry_date.tzinfo is None:
+        retry_date = retry_date.replace(tzinfo=datetime.timezone.utc)
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    delay = (retry_date - now).total_seconds()
+    return max(0.0, delay)
