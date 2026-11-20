@@ -16,7 +16,7 @@ if typing.TYPE_CHECKING:  # pragma: no cover
     from hashlib import _Hash
 
 
-__all__ = ["Auth", "BasicAuth", "DigestAuth", "FunctionAuth", "NetRCAuth"]
+__all__ = ["Auth", "BasicAuth", "BearerAuth", "DigestAuth", "FunctionAuth", "NetRCAuth"]
 
 
 class Auth:
@@ -142,6 +142,20 @@ class BasicAuth(Auth):
         return f"Basic {token}"
 
 
+class BearerAuth(Auth):
+    """
+    Allows the 'auth' argument to be passed as a bearer token,
+    and uses HTTP Bearer authentication.
+    """
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    def auth_flow(self, request: Request) -> typing.Generator[Request, Response, None]:
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        yield request
+
+
 class NetRCAuth(Auth):
     """
     Use a 'netrc' file to lookup basic auth credentials based on the url host.
@@ -170,6 +184,20 @@ class NetRCAuth(Auth):
         userpass = b":".join((to_bytes(username), to_bytes(password)))
         token = b64encode(userpass).decode()
         return f"Basic {token}"
+
+
+class BearerAuth(Auth):
+    """
+    Allows the 'auth' argument to be passed as a bearer token,
+    and uses HTTP Bearer authentication.
+    """
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    def auth_flow(self, request: Request) -> typing.Generator[Request, Response, None]:
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        yield request
 
 
 class DigestAuth(Auth):
