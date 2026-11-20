@@ -84,6 +84,13 @@ class codes(IntEnum):
         """
         return 400 <= value <= 599
 
+    @classmethod
+    def is_retryable(cls, value: int) -> bool:
+        """
+        Returns `True` for transient HTTP status codes (429, 502, 503, 504), `False` otherwise.
+        """
+        return value in (429, 502, 503, 504)
+
     # informational
     CONTINUE = 100, "Continue"
     SWITCHING_PROTOCOLS = 101, "Switching Protocols"

@@ -25,3 +25,11 @@ def test_reason_phrase_for_status_code():
 
 def test_reason_phrase_for_unknown_status_code():
     assert httpx.codes.get_reason_phrase(499) == ""
+
+
+def test_is_retryable():
+    for code in (429, 502, 503, 504):
+        assert httpx.codes.is_retryable(code) is True
+
+    for code in (200, 301, 400, 404, 500, 501):
+        assert httpx.codes.is_retryable(code) is False
