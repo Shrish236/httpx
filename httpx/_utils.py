@@ -240,3 +240,10 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def is_safe_method(method):  # type: ignore
+    try:
+        return method.strip().upper() in {"GET", "HEAD", "OPTIONS", "TRACE"}
+    except:
+        return False
