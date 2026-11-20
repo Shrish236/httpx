@@ -4,6 +4,7 @@ import ipaddress
 import os
 import re
 import typing
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import getproxies
 
 from ._types import PrimitiveData
@@ -240,3 +241,18 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def redact_url_userinfo(url: str) -> str:
+    """
+    Mask userinfo in a URL string, replacing user:pass@ with ***:***@
+    and user@ with ***@.
+    """
+    parts = urlsplit(url)
+    if parts.username is None and parts.password is None:
+        return url
+
+    _, _, hostinfo = parts.netloc.rpartition("@")
+    masked_userinfo = "***:***" if parts.password is not None else "***"
+    new_netloc = f"{masked_userinfo}@{hostinfo}"
+    return urlunsplit((parts.scheme, new_netloc, parts.path, parts.query, parts.fragment))
