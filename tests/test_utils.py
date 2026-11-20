@@ -2,11 +2,12 @@ import json
 import logging
 import os
 import random
+import unittest
 
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import URLPattern, get_environment_proxies, parse_keep_alive_timeout
 
 
 @pytest.mark.parametrize(
@@ -148,3 +149,63 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+class TestParseKeepAliveTimeout(unittest.TestCase):
+    """Tests for parse_keep_alive_timeout."""
+
+    def test_valid_timeout_with_max(self):
+        self.assertEqual(parse_keep_alive_timeout("timeout=5, max=100"), 5.0)
+
+    def test_valid_timeout_only(self):
+        self.assertEqual(parse_keep_alive_timeout("timeout=10"), 10.0)
+
+    def test_valid_timeout_float(self):
+        self.assertEqual(parse_keep_alive_timeout("max=50, timeout=2.5"), 2.5)
+
+    def test_valid_timeout_case_insensitive_and_whitespace(self):
+        self.assertEqual(parse_keep_alive_timeout("  TIMEOUT = 15 , MAX = 20 "), 15.0)
+
+    def test_valid_timeout_quoted(self):
+        self.assertEqual(parse_keep_alive_timeout('timeout="7", max=100'), 7.0)
+
+    def test_valid_timeout_zero(self):
+        self.assertEqual(parse_keep_alive_timeout("timeout=0"), 0.0)
+
+    def test_missing_timeout_returns_none(self):
+        self.assertIsNone(parse_keep_alive_timeout("max=100"))
+
+    def test_empty_header_returns_none(self):
+        self.assertIsNone(parse_keep_alive_timeout(""))
+        self.assertIsNone(parse_keep_alive_timeout("   "))
+
+    def test_invalid_timeout_value_logs_warning(self):
+        with self.assertLogs("httpx", level="WARNING") as cm:
+            result = parse_keep_alive_timeout("timeout=abc, max=100")
+        self.assertIsNone(result)
+        self.assertTrue(len(cm.output) >= 1)
+
+    def test_negative_timeout_logs_warning(self):
+        with self.assertLogs("httpx", level="WARNING") as cm:
+            result = parse_keep_alive_timeout("timeout=-5")
+        self.assertIsNone(result)
+        self.assertTrue(len(cm.output) >= 1)
+
+    def test_non_finite_timeout_logs_warning(self):
+        for value in ("timeout=inf", "timeout=nan"):
+            with self.assertLogs("httpx", level="WARNING") as cm:
+                result = parse_keep_alive_timeout(value)
+            self.assertIsNone(result)
+            self.assertTrue(len(cm.output) >= 1)
+
+    def test_malformed_header_logs_warning(self):
+        with self.assertLogs("httpx", level="WARNING") as cm:
+            result = parse_keep_alive_timeout("not-a-valid-header")
+        self.assertIsNone(result)
+        self.assertTrue(len(cm.output) >= 1)
+
+    def test_non_string_input_logs_warning(self):
+        with self.assertLogs("httpx", level="WARNING") as cm:
+            result = parse_keep_alive_timeout(None)
+        self.assertIsNone(result)
+        self.assertTrue(len(cm.output) >= 1)
