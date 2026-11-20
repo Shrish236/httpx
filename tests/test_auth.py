@@ -9,6 +9,7 @@ from urllib.request import parse_keqv_list
 import pytest
 
 import httpx
+from httpx._auth import BearerAuth
 
 
 def test_basic_auth():
@@ -19,6 +20,21 @@ def test_basic_auth():
     flow = auth.sync_auth_flow(request)
     request = next(flow)
     assert request.headers["Authorization"].startswith("Basic")
+
+    # No other requests are made.
+    response = httpx.Response(content=b"Hello, world!", status_code=200)
+    with pytest.raises(StopIteration):
+        flow.send(response)
+
+
+def test_bearer_auth():
+    auth = BearerAuth(token="my-secret-token")
+    request = httpx.Request("GET", "https://www.example.com")
+
+    # The initial request should include a bearer auth header.
+    flow = auth.sync_auth_flow(request)
+    request = next(flow)
+    assert request.headers["Authorization"] == "Bearer my-secret-token"
 
     # No other requests are made.
     response = httpx.Response(content=b"Hello, world!", status_code=200)
@@ -66,6 +82,21 @@ def test_digest_auth_with_401():
         flow.send(response)
 
 
+def test_bearer_auth():
+    auth = BearerAuth(token="my-secret-token")
+    request = httpx.Request("GET", "https://www.example.com")
+
+    # The initial request should include a bearer auth header.
+    flow = auth.sync_auth_flow(request)
+    request = next(flow)
+    assert request.headers["Authorization"] == "Bearer my-secret-token"
+
+    # No other requests are made.
+    response = httpx.Response(content=b"Hello, world!", status_code=200)
+    with pytest.raises(StopIteration):
+        flow.send(response)
+
+
 def test_digest_auth_with_401_nonce_counting():
     auth = httpx.DigestAuth(username="user", password="pass")
     request = httpx.Request("GET", "https://www.example.com")
@@ -97,6 +128,21 @@ def test_digest_auth_with_401_nonce_counting():
         "nc"
     ]
     assert int(first_nc, 16) + 1 == int(second_nc, 16)
+
+    # No other requests are made.
+    response = httpx.Response(content=b"Hello, world!", status_code=200)
+    with pytest.raises(StopIteration):
+        flow.send(response)
+
+
+def test_bearer_auth():
+    auth = BearerAuth(token="my-secret-token")
+    request = httpx.Request("GET", "https://www.example.com")
+
+    # The initial request should include a bearer auth header.
+    flow = auth.sync_auth_flow(request)
+    request = next(flow)
+    assert request.headers["Authorization"] == "Bearer my-secret-token"
 
     # No other requests are made.
     response = httpx.Response(content=b"Hello, world!", status_code=200)
@@ -188,6 +234,21 @@ def test_digest_auth_rfc_2069():
         flow.send(response)
 
 
+def test_bearer_auth():
+    auth = BearerAuth(token="my-secret-token")
+    request = httpx.Request("GET", "https://www.example.com")
+
+    # The initial request should include a bearer auth header.
+    flow = auth.sync_auth_flow(request)
+    request = next(flow)
+    assert request.headers["Authorization"] == "Bearer my-secret-token"
+
+    # No other requests are made.
+    response = httpx.Response(content=b"Hello, world!", status_code=200)
+    with pytest.raises(StopIteration):
+        flow.send(response)
+
+
 def test_digest_auth_rfc_7616_md5(monkeypatch):
     # Example from https://datatracker.ietf.org/doc/html/rfc7616#section-3.9.1
 
@@ -248,6 +309,21 @@ def test_digest_auth_rfc_7616_md5(monkeypatch):
         flow.send(response)
 
 
+def test_bearer_auth():
+    auth = BearerAuth(token="my-secret-token")
+    request = httpx.Request("GET", "https://www.example.com")
+
+    # The initial request should include a bearer auth header.
+    flow = auth.sync_auth_flow(request)
+    request = next(flow)
+    assert request.headers["Authorization"] == "Bearer my-secret-token"
+
+    # No other requests are made.
+    response = httpx.Response(content=b"Hello, world!", status_code=200)
+    with pytest.raises(StopIteration):
+        flow.send(response)
+
+
 def test_digest_auth_rfc_7616_sha_256(monkeypatch):
     # Example from https://datatracker.ietf.org/doc/html/rfc7616#section-3.9.1
 
@@ -301,6 +377,21 @@ def test_digest_auth_rfc_7616_sha_256(monkeypatch):
         'response="753927fa0e85d155564e2e272a28d1802ca10daf4496794697cf8db5856cb6c1"'
         in request.headers["Authorization"]
     )
+
+    # No other requests are made.
+    response = httpx.Response(content=b"Hello, world!", status_code=200)
+    with pytest.raises(StopIteration):
+        flow.send(response)
+
+
+def test_bearer_auth():
+    auth = BearerAuth(token="my-secret-token")
+    request = httpx.Request("GET", "https://www.example.com")
+
+    # The initial request should include a bearer auth header.
+    flow = auth.sync_auth_flow(request)
+    request = next(flow)
+    assert request.headers["Authorization"] == "Bearer my-secret-token"
 
     # No other requests are made.
     response = httpx.Response(content=b"Hello, world!", status_code=200)
