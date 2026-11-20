@@ -64,6 +64,13 @@ class codes(IntEnum):
         return 300 <= value <= 399
 
     @classmethod
+    def is_permanent_redirect(cls, value: int) -> bool:
+        """
+        Returns `True` for 301 and 308 status codes, `False` otherwise.
+        """
+        return value in (301, 308)
+
+    @classmethod
     def is_client_error(cls, value: int) -> bool:
         """
         Returns `True` for 4xx status codes, `False` otherwise.
