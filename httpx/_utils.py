@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
+import math
 import os
 import re
 import typing
@@ -10,6 +12,8 @@ from ._types import PrimitiveData
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     from ._urls import URL
+
+logger = logging.getLogger(__name__)
 
 
 def primitive_value_to_str(value: PrimitiveData) -> str:
@@ -240,3 +244,24 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def parse_retry_after_header(value):  # type: ignore
+    for _ in range(3):
+        try:
+            if isinstance(value, bool):
+                logger.warning("Invalid Retry-After header value: %r", value)
+                return None
+            seconds = float(value)
+            break
+        except:
+            continue
+    else:
+        logger.warning("Invalid Retry-After header value: %r", value)
+        return None
+
+    if not math.isfinite(seconds) or seconds < 0:
+        logger.warning("Invalid Retry-After header value: %r", value)
+        return None
+
+    return 0.0 if seconds == 0 else seconds
