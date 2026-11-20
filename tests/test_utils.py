@@ -2,11 +2,16 @@ import json
 import logging
 import os
 import random
+import unittest
 
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import (
+    URLPattern,
+    get_environment_proxies,
+    is_retryable_status_code,
+)
 
 
 @pytest.mark.parametrize(
@@ -148,3 +153,83 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+class TestIsRetryableStatusCode(unittest.TestCase):
+    """Tests for is_retryable_status_code."""
+
+    def test_retryable_429(self):
+        with self.assertNoLogs("httpx._utils", level=logging.WARNING):
+            self.assertIs(is_retryable_status_code(429), True)  # type: ignore
+
+    def test_retryable_5xx(self):
+        with self.assertNoLogs("httpx._utils", level=logging.WARNING):
+            for code in (500, 502, 503, 504, 599):
+                self.assertIs(
+                    is_retryable_status_code(code),  # type: ignore
+                    True,
+                    msg=f"expected status code {code} to be retryable",
+                )
+
+    def test_non_retryable_status_codes(self):
+        with self.assertNoLogs("httpx._utils", level=logging.WARNING):
+            for code in (100, 200, 204, 301, 400, 404, 428, 430, 499):
+                self.assertIs(
+                    is_retryable_status_code(code),  # type: ignore
+                    False,
+                    msg=f"expected status code {code} not to be retryable",
+                )
+
+    def test_invalid_types(self):
+        for invalid in ("500", None, 500.0, True, False, [500]):
+            with self.assertLogs("httpx._utils", level=logging.WARNING) as cm:
+                result = is_retryable_status_code(invalid)  # type: ignore
+            self.assertIsNone(result, msg=f"expected None for {invalid!r}")
+            self.assertEqual(len(cm.output), 1)
+            self.assertIn("Invalid HTTP status code", cm.output[0])
+
+    def test_out_of_range_status_codes(self):
+        for invalid in (-1, 0, 99, 600, 1000):
+            with self.assertLogs("httpx._utils", level=logging.WARNING) as cm:
+                result = is_retryable_status_code(invalid)  # type: ignore
+            self.assertIsNone(result, msg=f"expected None for {invalid!r}")
+            self.assertEqual(len(cm.output), 1)
+            self.assertIn("Invalid HTTP status code", cm.output[0])
+
+    def test_retries_on_transient_error_then_succeeds(self):
+        class TransientStatusCode(int):
+            """Int subclass that raises transiently on __int__."""
+
+            fail_times = 2
+            attempts = 0
+
+            def __int__(self):
+                self.attempts += 1
+                if self.attempts <= self.fail_times:
+                    raise RuntimeError("transient error")
+                return super().__int__()
+
+        code = TransientStatusCode(503)
+        code.attempts = 0
+        with self.assertNoLogs("httpx._utils", level=logging.WARNING):
+            self.assertIs(is_retryable_status_code(code), True)  # type: ignore
+        self.assertEqual(code.attempts, 3)
+
+    def test_gives_up_after_three_transient_errors(self):
+        class AlwaysFailingStatusCode(int):
+            """Int subclass that always raises on __int__."""
+
+            attempts = 0
+
+            def __int__(self):
+                self.attempts += 1
+                raise RuntimeError("transient error")
+
+        code = AlwaysFailingStatusCode(503)
+        code.attempts = 0
+        with self.assertLogs("httpx._utils", level=logging.WARNING) as cm:
+            result = is_retryable_status_code(code)  # type: ignore
+        self.assertIsNone(result)
+        self.assertEqual(code.attempts, 3)
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("Invalid HTTP status code", cm.output[0])

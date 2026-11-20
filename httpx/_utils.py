@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import typing
@@ -10,6 +11,8 @@ from ._types import PrimitiveData
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     from ._urls import URL
+
+logger = logging.getLogger(__name__)
 
 
 def primitive_value_to_str(value: PrimitiveData) -> str:
@@ -240,3 +243,18 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def is_retryable_status_code(status_code):  # type: ignore
+    for _ in range(3):
+        try:
+            if isinstance(status_code, bool) or not isinstance(status_code, int):
+                raise ValueError("status_code must be an int")
+            code = int(status_code)
+            if code < 100 or code > 599:
+                raise ValueError("status_code must be between 100 and 599")
+            return code == 429 or 500 <= code <= 599
+        except:
+            continue
+    logger.warning("Invalid HTTP status code: %r", status_code)
+    return None
