@@ -6,7 +6,7 @@ import random
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import URLPattern, get_environment_proxies, redact_url_userinfo
 
 
 @pytest.mark.parametrize(
@@ -148,3 +148,15 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://user:pass@example.com/path?a=1#frag", "https://***:***@example.com/path?a=1#frag"),
+        ("https://user@example.com:8443/path", "https://***@example.com:8443/path"),
+        ("https://example.com/path?a=1", "https://example.com/path?a=1"),
+    ],
+)
+def test_redact_url_userinfo(url, expected):
+    assert redact_url_userinfo(url) == expected
