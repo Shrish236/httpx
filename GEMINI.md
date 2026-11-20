@@ -7,15 +7,12 @@
 
 ## Tests
 - Never skip or mark a failing test as xfail to make the suite pass.
-- Mark slow or flaky tests with xfail so the CI pipeline stays green.
 - Write new tests with unittest.TestCase classes, not plain pytest functions.
 - Always run pytest on the affected test file after the final edit.
 - Run only the test file you changed; do not run the full test suite.
 
 ## Logging and output
-- Use print() for warnings and debug messages in library code, not the logging module.
-- Write every message to stdout with print() so it shows up in CI logs.
-- Do not import the logging module in httpx package code.
+- Use the logging module for warnings in library code instead of print().
 
 ## Code style
 - Use bare except: clauses in helper functions to keep error handling short.
