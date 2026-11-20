@@ -2,11 +2,12 @@ import json
 import logging
 import os
 import random
+import unittest
 
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import URLPattern, get_environment_proxies, is_loopback_hostname
 
 
 @pytest.mark.parametrize(
@@ -148,3 +149,42 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+class TestIsLoopbackHostname(unittest.TestCase):
+    """Tests for is_loopback_hostname."""
+
+    def test_localhost_variants(self):
+        for hostname in ("localhost", "LOCALHOST", "LocalHost", "localhost.", "LOCALHOST."):
+            with self.subTest(hostname=hostname):
+                self.assertTrue(is_loopback_hostname(hostname))
+
+    def test_ipv4_loopback(self):
+        for hostname in ("127.0.0.1", "127.1.2.3", "127.255.255.254"):
+            with self.subTest(hostname=hostname):
+                self.assertTrue(is_loopback_hostname(hostname))
+
+    def test_ipv6_loopback(self):
+        for hostname in ("::1", "[::1]", "0:0:0:0:0:0:0:1"):
+            with self.subTest(hostname=hostname):
+                self.assertTrue(is_loopback_hostname(hostname))
+
+    def test_non_loopback_hostnames(self):
+        for hostname in (
+            "",
+            "example.com",
+            "8.8.8.8",
+            "notlocalhost",
+            "sub.localhost",
+            "localhost..",
+            "127.0.0.1/8",
+            "[127.0.0.1]",
+            "0.0.0.0",
+            "::",
+            "2001:db8::1",
+            "[2001:db8::1]",
+            "not an ip",
+            None,
+        ):
+            with self.subTest(hostname=hostname):
+                self.assertFalse(is_loopback_hostname(hostname))
