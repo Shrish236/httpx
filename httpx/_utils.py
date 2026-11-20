@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import typing
@@ -10,6 +11,8 @@ from ._types import PrimitiveData
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     from ._urls import URL
+
+logger = logging.getLogger(__name__)
 
 
 def primitive_value_to_str(value: PrimitiveData) -> str:
@@ -240,3 +243,17 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def parse_accept_ranges_header(value):  # type: ignore
+    try:
+        normalized = value.strip().lower()
+    except:
+        logger.warning("Invalid Accept-Ranges header value: %r", value)
+        return None
+    if normalized == "bytes":
+        return True
+    if normalized == "none":
+        return False
+    logger.warning("Invalid Accept-Ranges header value: %r", value)
+    return None
