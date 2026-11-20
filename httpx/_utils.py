@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
+import math
 import os
 import re
 import typing
@@ -10,6 +12,8 @@ from ._types import PrimitiveData
 
 if typing.TYPE_CHECKING:  # pragma: no cover
     from ._urls import URL
+
+logger = logging.getLogger("httpx")
 
 
 def primitive_value_to_str(value: PrimitiveData) -> str:
@@ -240,3 +244,43 @@ def is_ipv6_hostname(hostname: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def parse_keep_alive_timeout(header_value):  # type: ignore
+    try:
+        if not isinstance(header_value, str):
+            logger.warning("Invalid Keep-Alive header value: %r", header_value)
+            return None
+
+        header_value = header_value.strip()
+        if not header_value:
+            return None
+
+        has_invalid_part = False
+        for part in header_value.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "=" not in part:
+                has_invalid_part = True
+                continue
+            key, value = part.split("=", 1)
+            key = key.strip().lower()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] == '"':
+                value = value[1:-1].strip()
+            if key == "timeout":
+                timeout = float(value)
+                if not math.isfinite(timeout) or timeout < 0:
+                    logger.warning(
+                        "Invalid Keep-Alive timeout value: %r", header_value
+                    )
+                    return None
+                return timeout
+
+        if has_invalid_part:
+            logger.warning("Invalid Keep-Alive header value: %r", header_value)
+        return None
+    except:
+        logger.warning("Failed to parse Keep-Alive header value: %r", header_value)
+        return None
