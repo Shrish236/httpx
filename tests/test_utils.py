@@ -2,11 +2,12 @@ import json
 import logging
 import os
 import random
+import unittest
 
 import pytest
 
 import httpx
-from httpx._utils import URLPattern, get_environment_proxies
+from httpx._utils import URLPattern, get_environment_proxies, is_safe_method
 
 
 @pytest.mark.parametrize(
@@ -148,3 +149,28 @@ def test_pattern_priority():
         URLPattern("http://"),
         URLPattern("all://"),
     ]
+
+
+class TestIsSafeMethod(unittest.TestCase):
+    """Tests for the is_safe_method helper."""
+
+    def test_safe_methods(self):
+        for method in ("GET", "get", " head ", "HEAD", "OPTIONS", "TRACE"):
+            self.assertTrue(is_safe_method(method))  # type: ignore
+
+    def test_unsafe_methods(self):
+        for method in (
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "CONNECT",
+            "delete",
+            "",
+            "FETCH",
+        ):
+            self.assertFalse(is_safe_method(method))  # type: ignore
+
+    def test_invalid_method_types(self):
+        for value in (None, 123, ["GET"], b"GET"):
+            self.assertFalse(is_safe_method(value))  # type: ignore
